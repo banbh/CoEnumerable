@@ -1,4 +1,4 @@
-# CoEnumerable
+# Introduction
 A demonstration of how to combine consumers of IEnumerables, aka CoEnumerables
 
 Suppose you have a sequence of numbers:
@@ -13,3 +13,9 @@ and we don't have the source code for the function.
 Suppose also that that the sequence we are working with is expensive to produce (so
 we don't want to run through it more than once) and large (so we can't store all the items
 in memory).  Is there a way to still compute what we wanted?
+
+# Combining CoEnumerables
+Since we will be working with functions like `Min()`, lets give them a name.
+More generally these are functions with signature `Func<IEnumerable<S>, T>`;
+since this is the [https://en.wikipedia.org/wiki/Dual_(category_theory)](dual) of an
+enumerable (like `IEnumerable<S>`), we call it a *coenumerable*.
