@@ -23,7 +23,7 @@ namespace CoEnumerable.Demo
                 Console.WriteLine('.');
             }
         }
-
+        
         static void Main()
         {
             var nums = Enumerable.Range(1, 2_000_000);
