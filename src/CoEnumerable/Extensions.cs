@@ -29,30 +29,51 @@ namespace CoEnumerable
                 set => moveNext = value;
             }
 
-            public IEnumerator<T> GetEnumerator()
+            private IEnumerator<T> Inner()
             {
-                try
+                while (true)
                 {
-                    while (true)
+                    barrier.SignalAndWait();
+                    if (moveNext)
                     {
-                        barrier.SignalAndWait();
-                        if (moveNext)
-                        {
-                            yield return src();
-                        }
-                        else
-                        {
-                            yield break;
-                        }
+                        yield return src();
                     }
-                }
-                finally
-                {
-                    barrier.RemoveParticipant();
+                    else
+                    {
+                        yield break;
+                    }
                 }
             }
 
+            public IEnumerator<T> GetEnumerator() => new DisposingEnumerator(Inner(), barrier);
+
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+            // Wraps the inner enumerator and ensures RemoveParticipant() is called
+            // exactly once from Dispose(), regardless of whether MoveNext() was
+            // ever called.
+            private class DisposingEnumerator : IEnumerator<T>
+            {
+                private readonly IEnumerator<T> _inner;
+                private readonly Barrier _barrier;
+
+                public DisposingEnumerator(IEnumerator<T> inner, Barrier barrier)
+                {
+                    _inner = inner;
+                    _barrier = barrier;
+                }
+
+                public T Current => _inner.Current;
+                object IEnumerator.Current => Current;
+                public bool MoveNext() => _inner.MoveNext();
+                public void Reset() => _inner.Reset();
+
+                public void Dispose()
+                {
+                    _inner.Dispose();
+                    _barrier.RemoveParticipant();
+                }
+            }
         }
 
         public static T Combine<S, T1, T2, T>(this IEnumerable<S> source,
