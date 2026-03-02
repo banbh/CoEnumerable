@@ -34,7 +34,7 @@ namespace CoEnumerable
                 set => moveNext = value;
             }
 
-            private IEnumerator<T> Inner()
+            public IEnumerator<T> GetEnumerator()
             {
                 while (true)
                 {
@@ -50,9 +50,7 @@ namespace CoEnumerable
                     }
                 }
             }
-
-            public IEnumerator<T> GetEnumerator() => Inner();
-
+            
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         }
 
