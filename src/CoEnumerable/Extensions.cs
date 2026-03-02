@@ -12,7 +12,6 @@ namespace CoEnumerable
         {
             private Barrier barrier;
             private bool moveNext;
-            private CancellationToken cancellationToken;
             private readonly Func<T> src;
 
             public BarrierEnumerable(IEnumerator<T> enumerator)
@@ -30,23 +29,11 @@ namespace CoEnumerable
                 set => moveNext = value;
             }
 
-            public CancellationToken CancellationToken
-            {
-                set => cancellationToken = value;
-            }
-
             private IEnumerator<T> Inner()
             {
                 while (true)
                 {
-                    try
-                    {
-                        barrier.SignalAndWait(cancellationToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        yield break;
-                    }
+                    barrier.SignalAndWait();
 
                     if (moveNext)
                     {
@@ -88,7 +75,6 @@ namespace CoEnumerable
             out int taskId2)
         {
             using var ss = source.GetEnumerator();
-            using var cts = new CancellationTokenSource();
 
             var enumerable1 = new BarrierEnumerable<S>(ss);
             var enumerable2 = new BarrierEnumerable<S>(ss);
@@ -97,16 +83,12 @@ namespace CoEnumerable
             // to ensure it is not disposed while threads are still using it.
             var barrier = new Barrier(2, _ => enumerable1.MoveNext = enumerable2.MoveNext = ss.MoveNext());
             enumerable1.Barrier = enumerable2.Barrier = barrier;
-            enumerable1.CancellationToken = enumerable2.CancellationToken = cts.Token;
 
             using var t1 = Task.Run(() =>
             {
-                bool faulted = false;
                 try   { return coenumerable1(enumerable1); }
-                catch { faulted = true; throw; }
                 finally
                 {
-                    if (faulted) cts.Cancel();
                     try { barrier.RemoveParticipant(); }
                     catch (InvalidOperationException) { }
                 }
@@ -115,12 +97,9 @@ namespace CoEnumerable
 
             using var t2 = Task.Run(() =>
             {
-                bool faulted = false;
                 try   { return coenumerable2(enumerable2); }
-                catch { faulted = true; throw; }
                 finally
                 {
-                    if (faulted) cts.Cancel();
                     try { barrier.RemoveParticipant(); }
                     catch (InvalidOperationException) { }
                 }
