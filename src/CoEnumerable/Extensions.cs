@@ -10,19 +10,14 @@ namespace CoEnumerable
 {
     public static class Extensions
     {
-        private class BarrierEnumerable<T> : IEnumerable<T>
+        private class BarrierEnumerable<T>(IEnumerator<T> enumerator) : IEnumerable<T>
         {
             private Barrier barrier;
             // moveNext is written by the post-phase action and read by Inner() on another thread.
             // This is safe because Barrier.SignalAndWait() provides a full memory barrier,
             // guaranteeing that the write is visible to all threads before they proceed.
             private bool moveNext;
-            private readonly Func<T> src;
-
-            public BarrierEnumerable(IEnumerator<T> enumerator)
-            {
-                src = () => enumerator.Current;
-            }
+            private readonly Func<T> src = () => enumerator.Current;
 
             public Barrier Barrier
             {
