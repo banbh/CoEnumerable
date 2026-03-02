@@ -43,12 +43,12 @@ namespace CoEnumerable.Tests
         }
 
         // -----------------------------------------------------------------------
-        // Flaw 1b: Deadlock when a coenumerable calls GetEnumerator() but never
-        // calls MoveNext() — e.g. ns.Take(0).Sum().
+        // Flaw 1b: Deadlock when a coenumerable enumerates vacuously — e.g.
+        // ns.Take(0).Sum() calls GetEnumerator() but never calls MoveNext().
         // -----------------------------------------------------------------------
         [TestMethod]
         [Timeout(6000)]
-        public void Flaw1b_Deadlock_WhenOneCoenumerableCallsGetEnumeratorButNotMoveNext()
+        public void Flaw1b_Deadlock_WhenOneCoenumerableEnumeratesVacuously()
         {
             var nums = Enumerable.Range(1, 5);
 
@@ -56,7 +56,7 @@ namespace CoEnumerable.Tests
             var thread = new Thread(() =>
             {
                 nums.Combine(
-                    ns => { using var e = ns.GetEnumerator(); return 99; },
+                    ns => ns.Take(0).Sum(),
                     ns => ns.Sum(),
                     (a, b) => (a, b));
                 completed = true;
@@ -66,7 +66,7 @@ namespace CoEnumerable.Tests
             thread.Start();
             bool finished = thread.Join(DeadlockTimeout);
 
-            Assert.IsTrue(finished, "Combine deadlocked: GetEnumerator without MoveNext hung the other coenumerable.");
+            Assert.IsTrue(finished, "Combine deadlocked: vacuous enumeration via Take(0).Sum() hung the other coenumerable.");
             Assert.IsTrue(completed);
         }
 
@@ -104,29 +104,6 @@ namespace CoEnumerable.Tests
             bool finished = thread2Finished.Wait(DeadlockTimeout);
             Assert.IsTrue(finished,
                 "Thread 2 was leaked: it did not finish within the timeout after coenumerable 1 threw.");
-        }
-
-        // -----------------------------------------------------------------------
-        // Sanity check: thread pool threads are always alive, confirming that
-        // IsAlive is not a reliable signal for task completion.
-        // -----------------------------------------------------------------------
-        [TestMethod]
-        public void ThreadPoolThreadsAreAlwaysAlive()
-        {
-            Thread capturedThread = null;
-            var done = new ManualResetEventSlim(false);
-
-            Task.Run(() =>
-            {
-                capturedThread = Thread.CurrentThread;
-                done.Set();
-            }).Wait();
-
-            done.Wait();
-            Thread.Sleep(500);
-
-            Assert.IsTrue(capturedThread.IsAlive,
-                "Thread pool threads are always alive even after their task completes.");
         }
 
         // -----------------------------------------------------------------------

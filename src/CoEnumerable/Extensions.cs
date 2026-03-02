@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("CoEnumerableTests")]
+
 namespace CoEnumerable
 {
     public static class Extensions
@@ -11,6 +13,9 @@ namespace CoEnumerable
         private class BarrierEnumerable<T> : IEnumerable<T>
         {
             private Barrier barrier;
+            // moveNext is written by the post-phase action and read by Inner() on another thread.
+            // This is safe because Barrier.SignalAndWait() provides a full memory barrier,
+            // guaranteeing that the write is visible to all threads before they proceed.
             private bool moveNext;
             private readonly Func<T> src;
 
@@ -46,28 +51,12 @@ namespace CoEnumerable
                 }
             }
 
-            public IEnumerator<T> GetEnumerator() => new DisposingEnumerator(Inner());
+            public IEnumerator<T> GetEnumerator() => Inner();
 
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-
-            private class DisposingEnumerator : IEnumerator<T>
-            {
-                private readonly IEnumerator<T> _inner;
-
-                public DisposingEnumerator(IEnumerator<T> inner)
-                {
-                    _inner = inner;
-                }
-
-                public T Current => _inner.Current;
-                object IEnumerator.Current => Current;
-                public bool MoveNext() => _inner.MoveNext();
-                public void Reset() => _inner.Reset();
-                public void Dispose() => _inner.Dispose();
-            }
         }
 
-        public static T Combine<S, T1, T2, T>(this IEnumerable<S> source,
+        internal static T Combine<S, T1, T2, T>(this IEnumerable<S> source,
             Func<IEnumerable<S>, T1> coenumerable1,
             Func<IEnumerable<S>, T2> coenumerable2,
             Func<T1, T2, T> resultSelector,
