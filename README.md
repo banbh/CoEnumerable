@@ -66,5 +66,6 @@ precondition and will cause a deadlock.
 
 # Acknowledgements
 The initial Barrier-based design was mine, however [Claude](https://claude.ai)
+(calude.ai, `claude-sonnet-4-6`)
 discovered some important bugs, wrote tests for them, 
 and fixed the implementation.
