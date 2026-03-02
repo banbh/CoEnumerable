@@ -12,6 +12,7 @@ namespace CoEnumerable
         {
             private Barrier barrier;
             private bool moveNext;
+            private CancellationToken cancellationToken;
             private readonly Func<T> src;
 
             public BarrierEnumerable(IEnumerator<T> enumerator)
@@ -29,11 +30,24 @@ namespace CoEnumerable
                 set => moveNext = value;
             }
 
+            public CancellationToken CancellationToken
+            {
+                set => cancellationToken = value;
+            }
+
             private IEnumerator<T> Inner()
             {
                 while (true)
                 {
-                    barrier.SignalAndWait();
+                    try
+                    {
+                        barrier.SignalAndWait(cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        yield break;
+                    }
+
                     if (moveNext)
                     {
                         yield return src();
@@ -45,34 +59,24 @@ namespace CoEnumerable
                 }
             }
 
-            public IEnumerator<T> GetEnumerator() => new DisposingEnumerator(Inner(), barrier);
+            public IEnumerator<T> GetEnumerator() => new DisposingEnumerator(Inner());
 
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-            // Wraps the inner enumerator and ensures RemoveParticipant() is called
-            // exactly once from Dispose(), regardless of whether MoveNext() was
-            // ever called.
             private class DisposingEnumerator : IEnumerator<T>
             {
                 private readonly IEnumerator<T> _inner;
-                private readonly Barrier _barrier;
 
-                public DisposingEnumerator(IEnumerator<T> inner, Barrier barrier)
+                public DisposingEnumerator(IEnumerator<T> inner)
                 {
                     _inner = inner;
-                    _barrier = barrier;
                 }
 
                 public T Current => _inner.Current;
                 object IEnumerator.Current => Current;
                 public bool MoveNext() => _inner.MoveNext();
                 public void Reset() => _inner.Reset();
-
-                public void Dispose()
-                {
-                    _inner.Dispose();
-                    _barrier.RemoveParticipant();
-                }
+                public void Dispose() => _inner.Dispose();
             }
         }
 
@@ -84,16 +88,55 @@ namespace CoEnumerable
             out int taskId2)
         {
             using var ss = source.GetEnumerator();
+            using var cts = new CancellationTokenSource();
+
             var enumerable1 = new BarrierEnumerable<S>(ss);
             var enumerable2 = new BarrierEnumerable<S>(ss);
-            using var barrier = new Barrier(2, _ => enumerable1.MoveNext = enumerable2.MoveNext = ss.MoveNext());
-            enumerable2.Barrier = enumerable1.Barrier = barrier;
 
-            using var t1 = Task.Run(() => coenumerable1(enumerable1));
+            // Not using 'using' here — barrier is disposed manually after WhenAll
+            // to ensure it is not disposed while threads are still using it.
+            var barrier = new Barrier(2, _ => enumerable1.MoveNext = enumerable2.MoveNext = ss.MoveNext());
+            enumerable1.Barrier = enumerable2.Barrier = barrier;
+            enumerable1.CancellationToken = enumerable2.CancellationToken = cts.Token;
+
+            using var t1 = Task.Run(() =>
+            {
+                bool faulted = false;
+                try   { return coenumerable1(enumerable1); }
+                catch { faulted = true; throw; }
+                finally
+                {
+                    if (faulted) cts.Cancel();
+                    try { barrier.RemoveParticipant(); }
+                    catch (InvalidOperationException) { }
+                }
+            });
             taskId1 = t1.Id;
 
-            using var t2 = Task.Run(() => coenumerable2(enumerable2));
+            using var t2 = Task.Run(() =>
+            {
+                bool faulted = false;
+                try   { return coenumerable2(enumerable2); }
+                catch { faulted = true; throw; }
+                finally
+                {
+                    if (faulted) cts.Cancel();
+                    try { barrier.RemoveParticipant(); }
+                    catch (InvalidOperationException) { }
+                }
+            });
             taskId2 = t2.Id;
+
+            try
+            {
+                // Wait for both tasks to complete before propagating any exception,
+                // ensuring neither task is leaked if one coenumerable throws.
+                Task.WhenAll(t1, t2).Wait();
+            }
+            finally
+            {
+                barrier.Dispose();
+            }
 
             return resultSelector(t1.Result, t2.Result);
         }

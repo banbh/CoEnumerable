@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace CoEnumerable.Tests
@@ -9,40 +10,26 @@ namespace CoEnumerable.Tests
     [TestClass]
     public class CombineFlawTests
     {
-        // A timeout we use to detect deadlocks. If a test hangs longer than this,
-        // we treat it as a deadlock rather than waiting forever.
         private static readonly TimeSpan DeadlockTimeout = TimeSpan.FromSeconds(5);
 
         // -----------------------------------------------------------------------
         // Flaw 1: Deadlock when a coenumerable ignores its IEnumerable<S> argument.
-        //
-        // If one coenumerable never calls MoveNext() on the proxy enumerable,
-        // it never calls Barrier.SignalAndWait(). The other coenumerable blocks
-        // in SignalAndWait() forever, and RemoveParticipant() is never called
-        // because the ignoring coenumerable's iterator is never enumerated
-        // (so its finally block never runs).
-        //
-        // Expected: Combine completes and returns (42, 15).
-        // Actual:   Combine deadlocks.
+        // Out of scope: violates the precondition that each coenumerable must call
+        // GetEnumerator() exactly once.
         // -----------------------------------------------------------------------
         [TestMethod]
         [Ignore("Out of scope: a coenumerable that never calls GetEnumerator() violates the precondition " +
                 "that each coenumerable enumerates its argument exactly once.")]
-        [Timeout(6000, CooperativeCancellation = true)] // MSTest timeout in ms; test fails if it doesn't complete
         public void Flaw1_Deadlock_WhenOneCoenumerableIgnoresItsArgument()
         {
             var nums = Enumerable.Range(1, 5);
 
-            // Run Combine on a separate thread so we can impose a timeout.
-            int result1 = 0;
-            int result2 = 0;
             bool completed = false;
-
             var thread = new Thread(() =>
             {
-                (result1, result2) = nums.Combine(
-                    ns => 42,           // ignores ns entirely — never calls MoveNext
-                    ns => ns.Sum(),     // enumerates fully
+                nums.Combine(
+                    ns => 42,
+                    ns => ns.Sum(),
                     (a, b) => (a, b));
                 completed = true;
             });
@@ -53,16 +40,11 @@ namespace CoEnumerable.Tests
 
             Assert.IsTrue(finished, "Combine deadlocked: the thread did not complete within the timeout.");
             Assert.IsTrue(completed);
-            Assert.AreEqual(42, result1);
-            Assert.AreEqual(15, result2);
         }
 
         // -----------------------------------------------------------------------
         // Flaw 1b: Deadlock when a coenumerable calls GetEnumerator() but never
-        // calls MoveNext().
-        //
-        // The coenumerable receives the IEnumerable<S>, even calls GetEnumerator(),
-        // but then discards the enumerator without iterating. Same deadlock.
+        // calls MoveNext() — e.g. ns.Take(0).Sum().
         // -----------------------------------------------------------------------
         [TestMethod]
         [Timeout(6000)]
@@ -71,11 +53,10 @@ namespace CoEnumerable.Tests
             var nums = Enumerable.Range(1, 5);
 
             bool completed = false;
-
             var thread = new Thread(() =>
             {
                 nums.Combine(
-                    ns => { using var e = ns.GetEnumerator(); return 99; }, // GetEnumerator but no MoveNext
+                    ns => { using var e = ns.GetEnumerator(); return 99; },
                     ns => ns.Sum(),
                     (a, b) => (a, b));
                 completed = true;
@@ -90,35 +71,26 @@ namespace CoEnumerable.Tests
         }
 
         // -----------------------------------------------------------------------
-        // Flaw 2: Thread leak (and effectively a deadlock from the caller's
-        // perspective) when one coenumerable throws an exception.
-        //
-        // If coenumerable1 throws, t1.Result re-throws on the calling thread.
-        // t2.Result is never awaited. Thread 2 is blocked in SignalAndWait()
-        // waiting for Thread 1 to arrive — but Thread 1 has already exited.
-        // Thread 2 is leaked and blocks forever.
-        //
-        // We verify this by checking that after Combine throws, the second
-        // thread is still alive (i.e., leaked/blocked).
+        // Flaw 2: Thread leak when one coenumerable throws an exception.
+        // The second coenumerable should run to completion even if the first throws.
+        // We detect this using a ManualResetEventSlim set in the second coenumerable's
+        // finally block — if it's never set, the coenumerable was leaked.
         // -----------------------------------------------------------------------
         [TestMethod]
         public void Flaw2_ThreadLeak_WhenOneCoenumerableThrows()
         {
             var nums = Enumerable.Range(1, 1000);
-
-            Thread capturedThread = null;
-            var threadStarted = new ManualResetEventSlim(false);
+            var thread2Finished = new ManualResetEventSlim(false);
 
             bool exceptionPropagated = false;
             try
             {
-                nums.Combine<int, int, int, object>(
+                nums.Combine<int, int, int, (int, int)>(
                     ns => throw new InvalidOperationException("deliberate failure"),
                     ns =>
                     {
-                        capturedThread = Thread.CurrentThread;
-                        threadStarted.Set();
-                        return ns.Sum(); // will block in SignalAndWait waiting for thread 1
+                        try   { return ns.Sum(); }
+                        finally { thread2Finished.Set(); }
                     },
                     (a, b) => (a, b));
             }
@@ -129,30 +101,36 @@ namespace CoEnumerable.Tests
 
             Assert.IsTrue(exceptionPropagated, "Expected exception was not propagated.");
 
-            // Give the leaked thread a moment to reveal itself as blocked.
-            threadStarted.Wait(DeadlockTimeout);
-            Thread.Sleep(500);
-
-            // The thread should still be alive and blocked, not completed.
-            if (capturedThread != null)
-            {
-                Assert.IsFalse(
-                    capturedThread.IsAlive,
-                    "Thread 2 was leaked: it is still blocked after coenumerable 1 threw.");
-            }
-            else
-            {
-                // If the thread never even started, the exception was thrown before
-                // Task.Run had a chance to start t2 — that's a different race but
-                // still means t2 was never properly cleaned up.
-                Assert.Inconclusive("Thread 2 never started; exception was thrown too early to observe the leak.");
-            }
+            bool finished = thread2Finished.Wait(DeadlockTimeout);
+            Assert.IsTrue(finished,
+                "Thread 2 was leaked: it did not finish within the timeout after coenumerable 1 threw.");
         }
 
         // -----------------------------------------------------------------------
-        // Correctness baseline: verify the implementation works in the normal case,
-        // so we know failures in the above tests are genuine flaws and not
-        // environment issues.
+        // Sanity check: thread pool threads are always alive, confirming that
+        // IsAlive is not a reliable signal for task completion.
+        // -----------------------------------------------------------------------
+        [TestMethod]
+        public void ThreadPoolThreadsAreAlwaysAlive()
+        {
+            Thread capturedThread = null;
+            var done = new ManualResetEventSlim(false);
+
+            Task.Run(() =>
+            {
+                capturedThread = Thread.CurrentThread;
+                done.Set();
+            }).Wait();
+
+            done.Wait();
+            Thread.Sleep(500);
+
+            Assert.IsTrue(capturedThread.IsAlive,
+                "Thread pool threads are always alive even after their task completes.");
+        }
+
+        // -----------------------------------------------------------------------
+        // Correctness baseline.
         // -----------------------------------------------------------------------
         [TestMethod]
         public void Baseline_CorrectResultsInNormalCase()
