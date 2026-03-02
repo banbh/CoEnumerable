@@ -1,15 +1,16 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace CoEnumerableTests
 {
     static class TestExtensions
     {
-        public class TracingEnumerator<T> : IEnumerator<T>
+        private class TracingEnumerator<T> : IEnumerator<T>
         {
-            private readonly object locker = new object();
+            private readonly Lock locker = new Lock();
             private readonly IEnumerator<T> enumerator;
             private readonly StringBuilder sb;
 
@@ -20,7 +21,7 @@ namespace CoEnumerableTests
                 Append(',');
             }
 
-            private S Append<S>(S s)
+            private TS Append<TS>(TS s)
             {
                 var s1 = $"{Task.CurrentId}:{s} ";
                 lock (locker)
@@ -52,17 +53,8 @@ namespace CoEnumerableTests
             }
         }
 
-        public class TracingEnumerable<T> : IEnumerable<T>
+        private class TracingEnumerable<T>(IEnumerable<T> ts, StringBuilder stringBuilder) : IEnumerable<T>
         {
-            private readonly IEnumerable<T> ts;
-            private readonly StringBuilder stringBuilder;
-
-            public TracingEnumerable(IEnumerable<T> ts, StringBuilder stringBuilder)
-            {
-                this.ts = ts;
-                this.stringBuilder = stringBuilder;
-            }
-
             public IEnumerator<T> GetEnumerator()
             {
                 return new TracingEnumerator<T>(ts.GetEnumerator(), stringBuilder);

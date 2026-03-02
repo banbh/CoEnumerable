@@ -1,11 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
+using CoEnumerable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace CoEnumerable.Tests
+namespace CoEnumerableTests
 {
     [TestClass]
     public class CombineFlawTests
@@ -28,13 +27,15 @@ namespace CoEnumerable.Tests
             var thread = new Thread(() =>
             {
                 nums.Combine(
-                    ns => 42,
+                    _ => 42,
                     ns => ns.Sum(),
                     (a, b) => (a, b));
                 completed = true;
-            });
+            })
+            {
+                IsBackground = true
+            };
 
-            thread.IsBackground = true;
             thread.Start();
             bool finished = thread.Join(DeadlockTimeout);
 
@@ -60,9 +61,11 @@ namespace CoEnumerable.Tests
                     ns => ns.Sum(),
                     (a, b) => (a, b));
                 completed = true;
-            });
+            })
+            {
+                IsBackground = true
+            };
 
-            thread.IsBackground = true;
             thread.Start();
             bool finished = thread.Join(DeadlockTimeout);
 
@@ -86,7 +89,7 @@ namespace CoEnumerable.Tests
             try
             {
                 nums.Combine<int, int, int, (int, int)>(
-                    ns => throw new InvalidOperationException("deliberate failure"),
+                    _ => throw new InvalidOperationException("deliberate failure"),
                     ns =>
                     {
                         try   { return ns.Sum(); }
@@ -113,7 +116,7 @@ namespace CoEnumerable.Tests
         public void Baseline_CorrectResultsInNormalCase()
         {
             var nums = Enumerable.Range(1, 2_000_000);
-            (var x, var y) = nums.Combine(
+            var (x, y) = nums.Combine(
                 ns => ns.Any(n => n == 3),
                 ns => ns.Take(2).Sum(),
                 (a, b) => (a, b));

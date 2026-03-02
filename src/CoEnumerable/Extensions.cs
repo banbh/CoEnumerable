@@ -49,40 +49,55 @@ namespace CoEnumerable
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         }
 
-        internal static T Combine<S, T1, T2, T>(this IEnumerable<S> source,
-            Func<IEnumerable<S>, T1> coenumerable1,
-            Func<IEnumerable<S>, T2> coenumerable2,
+        internal static T Combine<TS, T1, T2, T>(this IEnumerable<TS> source,
+            Func<IEnumerable<TS>, T1> coenumerable1,
+            Func<IEnumerable<TS>, T2> coenumerable2,
             Func<T1, T2, T> resultSelector,
             out int taskId1,
             out int taskId2)
         {
             using var ss = source.GetEnumerator();
 
-            var enumerable1 = new BarrierEnumerable<S>(ss);
-            var enumerable2 = new BarrierEnumerable<S>(ss);
+            var enumerable1 = new BarrierEnumerable<TS>(ss);
+            var enumerable2 = new BarrierEnumerable<TS>(ss);
 
             // Not using 'using' here — barrier is disposed manually after WhenAll
             // to ensure it is not disposed while threads are still using it.
+            // ReSharper disable once AccessToDisposedClosure
             var barrier = new Barrier(2, _ => enumerable1.MoveNext = enumerable2.MoveNext = ss.MoveNext());
             enumerable1.Barrier = enumerable2.Barrier = barrier;
 
+            // ReSharper disable once AccessToDisposedClosure
             using var t1 = Task.Run(() =>
             {
-                try   { return coenumerable1(enumerable1); }
+                try
+                {
+                    return coenumerable1(enumerable1);
+                }
                 finally
                 {
-                    try { barrier.RemoveParticipant(); }
+                    try
+                    {
+                        barrier.RemoveParticipant();
+                    }
                     catch (InvalidOperationException) { }
                 }
             });
             taskId1 = t1.Id;
 
+            // ReSharper disable once AccessToDisposedClosure
             using var t2 = Task.Run(() =>
             {
-                try   { return coenumerable2(enumerable2); }
+                try
+                {
+                    return coenumerable2(enumerable2);
+                }
                 finally
                 {
-                    try { barrier.RemoveParticipant(); }
+                    try
+                    {
+                        barrier.RemoveParticipant();
+                    }
                     catch (InvalidOperationException) { }
                 }
             });
@@ -102,7 +117,10 @@ namespace CoEnumerable
             return resultSelector(t1.Result, t2.Result);
         }
 
-        public static T Combine<S, T1, T2, T>(this IEnumerable<S> source, Func<IEnumerable<S>, T1> coenumerable1, Func<IEnumerable<S>, T2> coenumerable2, Func<T1, T2, T> resultSelector) =>
-            Combine(source, coenumerable1, coenumerable2, resultSelector, out _, out _);
+        public static T Combine<TS, T1, T2, T>(this IEnumerable<TS> source, 
+            Func<IEnumerable<TS>, T1> coenumerable1, 
+            Func<IEnumerable<TS>, T2> coenumerable2, 
+            Func<T1, T2, T> resultSelector) =>
+            source.Combine(coenumerable1, coenumerable2, resultSelector, out _, out _);
     }
 }
