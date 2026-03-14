@@ -19,7 +19,7 @@ namespace CoEnumerable.Tests
         public void CombineTest()
         {
             // ReSharper disable PossibleMultipleEnumeration
-            var (x1, x2) = Nums.Combine(Coenumerable1, Coenumerable2, (x, y) => (x, y));
+            var (x1, x2) = Nums.Combine(Coenumerable1, Coenumerable2);
             Assert.AreEqual(Coenumerable1(Nums), x1);
             Assert.AreEqual(Coenumerable2(Nums), x2);
             // ReSharper restore PossibleMultipleEnumeration

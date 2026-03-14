@@ -29,7 +29,7 @@ namespace CoEnumerable.Demo
             var nums = Enumerable.Range(1, 2_000_000);
 
             // Check that CoEnumerable.Combine(...) behaves as expected
-            (var x, var y) = nums.Trace("nums:").Combine(ns => ns.Any(n => n == 3), ns => ns.Take(2).Sum(), (x, y) => (x, y));
+            var (x, y) = nums.Trace("nums:").Combine(ns => ns.Any(n => n == 3), ns => ns.Take(2).Sum());
             // Note that Trace(...) outputs "nums: 1 2 3." indicating that the sequence is (a) iterated only once, and (b) only as far as neede
             Console.WriteLine($"Are any three? {x}.  Sum of first two: {y}");
 
@@ -40,7 +40,7 @@ namespace CoEnumerable.Demo
             Console.WriteLine($"Old-fashioned way: (min, max)={minMax1} (in {stopWatch.ElapsedMilliseconds}ms)");
 
             stopWatch = Stopwatch.StartNew();
-            var minMax2 = nums.Combine(Enumerable.Min, Enumerable.Max, (x, y) => (x, y)); // iterates through `nums` only once
+            var minMax2 = nums.Combine(Enumerable.Min, Enumerable.Max); // iterates through `nums` only once
             stopWatch.Stop();
             Console.WriteLine($"Using CoEnumerable: (min, max)={minMax2} (in {stopWatch.ElapsedMilliseconds}ms)"); // takes 10x - 20x as long as the old-fashioned way
 

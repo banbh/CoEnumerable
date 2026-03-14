@@ -122,5 +122,10 @@ namespace CoEnumerable
             Func<IEnumerable<TS>, T2> coenumerable2, 
             Func<T1, T2, T> resultSelector) =>
             source.Combine(coenumerable1, coenumerable2, resultSelector, out _, out _);
+        
+        public static (T1, T2) Combine<TS, T1, T2>(this IEnumerable<TS> source,
+            Func<IEnumerable<TS>, T1> coenumerable1,
+            Func<IEnumerable<TS>, T2> coenumerable2) =>
+            source.Combine(coenumerable1, coenumerable2, (x, y) => (x, y));
     }
 }

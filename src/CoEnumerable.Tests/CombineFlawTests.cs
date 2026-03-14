@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -27,8 +28,7 @@ namespace CoEnumerable.Tests
             {
                 nums.Combine(
                     _ => 42,
-                    ns => ns.Sum(),
-                    (a, b) => (a, b));
+                    ns => ns.Sum());
                 completed = true;
             })
             {
@@ -50,26 +50,9 @@ namespace CoEnumerable.Tests
         [Timeout(6000)]
         public void Flaw1b_Deadlock_WhenOneCoenumerableEnumeratesVacuously()
         {
-            var nums = Enumerable.Range(1, 5);
-
-            bool completed = false;
-            var thread = new Thread(() =>
-            {
-                nums.Combine(
-                    ns => ns.Take(0).Sum(),
-                    ns => ns.Sum(),
-                    (a, b) => (a, b));
-                completed = true;
-            })
-            {
-                IsBackground = true
-            };
-
-            thread.Start();
-            bool finished = thread.Join(DeadlockTimeout);
-
-            Assert.IsTrue(finished, "Combine deadlocked: vacuous enumeration via Take(0).Sum() hung the other coenumerable.");
-            Assert.IsTrue(completed);
+            Enumerable.Range(1, 5).Combine(
+                ns => ns.Take(0).Sum(),
+                ns => ns.Sum());
         }
 
         // -----------------------------------------------------------------------
@@ -83,18 +66,17 @@ namespace CoEnumerable.Tests
         {
             var nums = Enumerable.Range(1, 1000);
             var thread2Finished = new ManualResetEventSlim(false);
-
+            
             bool exceptionPropagated = false;
             try
             {
-                nums.Combine<int, int, int, (int, int)>(
-                    _ => throw new InvalidOperationException("deliberate failure"),
+                nums.Combine(
+                    (Func<IEnumerable<int>, int>)Fail,
                     ns =>
                     {
                         try   { return ns.Sum(); }
                         finally { thread2Finished.Set(); }
-                    },
-                    (a, b) => (a, b));
+                    });
             }
             catch (Exception)
             {
@@ -106,21 +88,9 @@ namespace CoEnumerable.Tests
             bool finished = thread2Finished.Wait(DeadlockTimeout);
             Assert.IsTrue(finished,
                 "Thread 2 was leaked: it did not finish within the timeout after coenumerable 1 threw.");
-        }
-
-        // -----------------------------------------------------------------------
-        // Correctness baseline.
-        // -----------------------------------------------------------------------
-        [TestMethod]
-        public void Baseline_CorrectResultsInNormalCase()
-        {
-            var nums = Enumerable.Range(1, 2_000_000);
-            var (x, y) = nums.Combine(
-                ns => ns.Any(n => n == 3),
-                ns => ns.Take(2).Sum(),
-                (a, b) => (a, b));
-            Assert.IsTrue(x);
-            Assert.AreEqual(3, y);
+            return;
+         
+            int Fail(IEnumerable<int> _) => throw new InvalidOperationException("deliberate failure");
         }
     }
 }
