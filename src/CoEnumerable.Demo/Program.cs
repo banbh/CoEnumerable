@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace CoEnumerable.Demo
 {
-    static class Program
+    internal static class Program
     {
         private static IEnumerable<T> Trace<T>(this IEnumerable<T> ts, string msg = "")
         {
@@ -23,8 +23,8 @@ namespace CoEnumerable.Demo
                 Console.WriteLine('.');
             }
         }
-        
-        static void Main()
+
+        private static void Main()
         {
             var nums = Enumerable.Range(1, 2_000_000);
 
