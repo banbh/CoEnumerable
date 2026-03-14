@@ -71,7 +71,7 @@ namespace CoEnumerable.Tests
             try
             {
                 nums.Combine(
-                    (Func<IEnumerable<int>, int>)Fail,
+                    Fail,
                     ns =>
                     {
                         try   { return ns.Sum(); }
