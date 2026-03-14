@@ -29,8 +29,9 @@ namespace CoEnumerable.Demo
             var nums = Enumerable.Range(1, 2_000_000);
 
             // Check that CoEnumerable.Combine(...) behaves as expected
+            // ReSharper disable PossibleMultipleEnumeration
             var (x, y) = nums.Trace("nums:").Combine(ns => ns.Any(n => n == 3), ns => ns.Take(2).Sum());
-            // Note that Trace(...) outputs "nums: 1 2 3." indicating that the sequence is (a) iterated only once, and (b) only as far as neede
+            // Note that Trace(...) outputs "nums: 1 2 3." indicating that the sequence is (a) iterated only once, and (b) only as far as needed
             Console.WriteLine($"Are any three? {x}.  Sum of first two: {y}");
 
             // Carry out some timings
@@ -45,6 +46,7 @@ namespace CoEnumerable.Demo
             Console.WriteLine($"Using CoEnumerable: (min, max)={minMax2} (in {stopWatch.ElapsedMilliseconds}ms)"); // takes 10x - 20x as long as the old-fashioned way
 
             Console.WriteLine($"Did we get the right answer? {minMax1 == minMax2}");
+            // ReSharper restore PossibleMultipleEnumeration
         }
     }
 }
