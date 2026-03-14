@@ -5,7 +5,6 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-// xxReSharper disable ConvertToLocalFunction
 
 namespace CoEnumerable.Tests
 {
