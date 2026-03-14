@@ -1,10 +1,9 @@
 using System;
 using System.Linq;
 using System.Threading;
-using CoEnumerable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace CoEnumerableTests
+namespace CoEnumerable.Tests
 {
     [TestClass]
     public class CombineFlawTests

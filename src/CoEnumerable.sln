@@ -7,7 +7,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CoEnumerable.Demo", "CoEnum
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CoEnumerable", "CoEnumerable\CoEnumerable.csproj", "{9CA9BBFB-1F10-4BBA-9978-AE61EBF866F2}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CoEnumerableTests", "CoEnumerableTests\CoEnumerableTests.csproj", "{318A0D6C-3ABE-4F93-8A2E-5F83C0DA9864}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CoEnumerable.Tests", "CoEnumerable.Tests\CoEnumerable.Tests.csproj", "{318A0D6C-3ABE-4F93-8A2E-5F83C0DA9864}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Experiments", "Experiments\Experiments.csproj", "{7F6FA1AD-410F-48B4-A523-A042EB6C10F1}"
 EndProject

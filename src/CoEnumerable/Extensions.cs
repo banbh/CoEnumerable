@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("CoEnumerableTests")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("CoEnumerable.Tests")]
 
 namespace CoEnumerable
 {
