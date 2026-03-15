@@ -159,7 +159,7 @@ public class ExtensionsTests
         const string msg = "post-phase failure";
         var barrier = new Barrier(2, _ => throw new InvalidOperationException(msg));
         
-        Task.Run(() =>
+        var t = Task.Run(() =>
         {
             barrier.SignalAndWait(TestContext.CancellationToken); // signal and wait for phase to complete
         }, TestContext.CancellationToken);
@@ -185,13 +185,18 @@ public class ExtensionsTests
         }
         finally
         {
-            // t.Wait(); // will throw although perhaps TODO we want to wait and catch so we can dispose barrier?
+            try
+            {
+                t.Wait(TestContext.CancellationToken); // will throw AggregateException wrapping BPPE
+            }
+            catch (AggregateException) { } // expected — task's SignalAndWait also throws BPPE
+
             barrier.Dispose();
         }
     }
 
     // Flaw 2: Thread leak when one coenumerable throws an exception.
-    // The second coenumerable should run to completion even if the first throws.
+    // The second coenumerable should run to completion even if the first throws an exception.
     // We detect this using a ManualResetEventSlim set in the second coenumerable's
     // finally block — if it's never set, the coenumerable was leaked.
     [TestMethod]

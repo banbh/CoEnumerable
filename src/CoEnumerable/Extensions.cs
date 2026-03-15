@@ -38,7 +38,9 @@ public static class Extensions
             {
                 try
                 {
-                    barrier!.SignalAndWait(); // TODO is there a way to ensure barrier os not null?
+                    // barrier is always set immediately after construction in TryCombine,
+                    // before GetEnumerator() is called, so ! is safe here.
+                    barrier!.SignalAndWait();
                 }
                 catch (BarrierPostPhaseException bppe)
                 {
