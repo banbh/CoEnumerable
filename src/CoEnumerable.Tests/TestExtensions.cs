@@ -33,7 +33,7 @@ internal static class TestExtensions
 
         public T Current => Append(enumerator.Current);
 
-        object IEnumerator.Current => Current;
+        object IEnumerator.Current => Current!;
 
         public void Dispose()
         {
