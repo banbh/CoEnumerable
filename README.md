@@ -64,10 +64,15 @@ the exception is propagated directly to the caller of `Combine` or `TryCombine`,
 
 # Comments and Limitations
 * `Combine` and `TryCombine` are significantly slower than running two functions independently
-  over the same sequence, because they require two thread synchronisations per item.
+  over the same sequence, because they require two thread synchronizations per item.
   `CoEnumerable.Demo` illustrates this — expect a 20x–50x slowdown compared to the naive
   approach. This is an inherent cost of the no-buffering constraint: any meaningful speedup
   would require relaxing it to allow a small fixed-size buffer.
+* When one coenumerable throws, `Combine` allows the other to run to completion before
+  propagating the exception. This means the source may be enumerated further than strictly
+  necessary — violating the principle of lazy, minimal enumeration. A future implementation
+  could address this by introducing a cancellation mechanism, though this would add
+  significant complexity.
 * The `CoEnumerable.Tests` project documents the preconditions and verifies correct behavior,
   including edge cases such as partial enumeration, vacuous enumeration, and exceptions.
 * Could this be implemented using [ReactiveX](http://reactivex.io/)? It is certainly possible
