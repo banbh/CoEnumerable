@@ -4,69 +4,68 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace CoEnumerable.Tests
+namespace CoEnumerable.Tests;
+
+internal static class TestExtensions
 {
-    static class TestExtensions
+    private class TracingEnumerator<T> : IEnumerator<T>
     {
-        private class TracingEnumerator<T> : IEnumerator<T>
+        private readonly Lock locker = new();
+        private readonly IEnumerator<T> enumerator;
+        private readonly StringBuilder sb;
+
+        public TracingEnumerator(IEnumerator<T> enumerator, StringBuilder sb)
         {
-            private readonly Lock locker = new Lock();
-            private readonly IEnumerator<T> enumerator;
-            private readonly StringBuilder sb;
-
-            public TracingEnumerator(IEnumerator<T> enumerator, StringBuilder sb)
-            {
-                this.enumerator = enumerator;
-                this.sb = sb;
-                Append(',');
-            }
-
-            private TS Append<TS>(TS s)
-            {
-                var s1 = $"{Task.CurrentId}:{s} ";
-                lock (locker)
-                {
-                    sb.Append(s1);
-                }
-                return s;
-            }
-
-            public T Current => Append(enumerator.Current);
-
-            object IEnumerator.Current => Current;
-
-            public void Dispose()
-            {
-                Append(';');
-                enumerator.Dispose();
-            }
-
-            public bool MoveNext()
-            {
-                return Append(enumerator.MoveNext());
-            }
-
-            public void Reset()
-            {
-                Append('!');
-                enumerator.Reset();
-            }
+            this.enumerator = enumerator;
+            this.sb = sb;
+            Append(',');
         }
 
-        private class TracingEnumerable<T>(IEnumerable<T> ts, StringBuilder stringBuilder) : IEnumerable<T>
+        private TS Append<TS>(TS s)
         {
-            public IEnumerator<T> GetEnumerator()
+            var s1 = $"{Task.CurrentId}:{s} ";
+            lock (locker)
             {
-                return new TracingEnumerator<T>(ts.GetEnumerator(), stringBuilder);
+                sb.Append(s1);
             }
-
-            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+            return s;
         }
 
-        public static IEnumerable<T> Tracing<T>(this IEnumerable<T> ts, out StringBuilder stringBuilder)
+        public T Current => Append(enumerator.Current);
+
+        object IEnumerator.Current => Current;
+
+        public void Dispose()
         {
-            stringBuilder = new StringBuilder();
-            return new TracingEnumerable<T>(ts, stringBuilder);
+            Append(';');
+            enumerator.Dispose();
         }
+
+        public bool MoveNext()
+        {
+            return Append(enumerator.MoveNext());
+        }
+
+        public void Reset()
+        {
+            Append('!');
+            enumerator.Reset();
+        }
+    }
+
+    private class TracingEnumerable<T>(IEnumerable<T> ts, StringBuilder stringBuilder) : IEnumerable<T>
+    {
+        public IEnumerator<T> GetEnumerator()
+        {
+            return new TracingEnumerator<T>(ts.GetEnumerator(), stringBuilder);
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    public static IEnumerable<T> Tracing<T>(this IEnumerable<T> ts, out StringBuilder stringBuilder)
+    {
+        stringBuilder = new StringBuilder();
+        return new TracingEnumerable<T>(ts, stringBuilder);
     }
 }

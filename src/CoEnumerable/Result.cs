@@ -4,13 +4,28 @@ namespace CoEnumerable;
 
 public readonly struct Result<T>
 {
-    public T? Value { get; }
-    public Exception? Error { get; }
-    public bool IsSuccess => Error is null;
+    private readonly T? value;
+    private readonly Exception? error;
 
-    private Result(T value) { Value = value; }
-    private Result(Exception error) { Error = error; }
+    public bool IsSuccess => error is null;
 
+    public T Value => IsSuccess
+        ? value!
+        : throw new InvalidOperationException("Cannot access Value on a failed Result.");
+
+    public Exception Error => !IsSuccess
+        ? error!
+        : throw new InvalidOperationException("Cannot access Error on a successful Result.");
+
+    private Result(T value) { this.value = value; }
+    private Result(Exception error) { this.error = error; }
+
+#pragma warning disable CA1000
     public static Result<T> Ok(T value) => new(value);
-    public static Result<T> Fail(Exception error) => new(error);
+
+    public static Result<T> Fail(Exception error)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        return new Result<T>(error);
+    }
 }
