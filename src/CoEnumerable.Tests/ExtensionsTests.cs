@@ -118,7 +118,6 @@ public class ExtensionsTests
     {
         // ReSharper disable PossibleMultipleEnumeration
         var (x1, x2) = Nums.Tracing(out var sb).Combine(Coenumerable1, Coenumerable2,
-            (x, y) => (x, y),
             out var tid1,
             out var tid2);
         AreEqual(Coenumerable1(Nums), x1);

@@ -6,7 +6,7 @@ var nums = Enumerable.Range(1, 5); // 1,2,3,4,5
 Then `nums.Min()` computes their minimum, and `nums.Max()` computes their maximum.
 However, if we want both the minimum and the maximum we end up running through `nums` twice.
 We could, of course, write our own function `MinMax()` which keeps track of both
-the minimum and the maximum. But let's assume what we want to compute two, more complicated,
+the minimum and the maximum. But let's assume we want to compute two more complicated
 functions of `nums` and that we don't have the source code for the functions.
 Suppose, also, that the sequence we are working with is expensive to produce (so
 we don't want to run through it more than once) and large (so we can't store all the items
@@ -31,8 +31,16 @@ We want a procedure to evaluate two coenumerables on a given enumerable so that
 * we do not require access to the source code of the coenumerables, and
 * if both coenumerables enumerate the enumerable partially, then so too does the procedure.
 
-The `Combine` extension method in the `CoEnumerable` project in this repo does exactly this.
-It is implemented using a
+Two extension methods in the `CoEnumerable` project implement this:
+
+* `Combine` evaluates both coenumerables and returns their results as a tuple `(T1, T2)`.
+  If either coenumerable throws, the other is allowed to run to completion, and then an
+  `AggregateException` containing all thrown exceptions is propagated to the caller.
+* `TryCombine` evaluates both coenumerables and returns a `(Result<T1>, Result<T2>)` tuple,
+  where each `Result<T>` independently captures either a value or an exception. This is useful
+  when the caller wants to handle the outcomes of the two coenumerables independently.
+
+Both methods are implemented using a
 [Barrier](https://docs.microsoft.com/en-us/dotnet/api/system.threading.barrier)
 (not to be confused with a
 [MemoryBarrier](https://docs.microsoft.com/en-us/dotnet/api/system.threading.thread.memorybarrier)):
@@ -40,7 +48,7 @@ each coenumerable runs on its own task, and the barrier ensures that the source 
 exactly once per phase, with both tasks receiving each item before the next is pulled.
 
 # Preconditions
-For `Combine` to work correctly, each coenumerable must:
+For `Combine` and `TryCombine` to work correctly, each coenumerable must:
 * Call `GetEnumerator()` exactly once on the enumerable it receives.
 * `Dispose()` the enumerator it obtains — either explicitly or implicitly via `foreach` or LINQ.
   This is standard .NET practice and is satisfied automatically by all LINQ operators.
@@ -49,15 +57,18 @@ A coenumerable that calls `GetEnumerator()` but never calls `MoveNext()` (e.g. `
 is fully supported. A coenumerable that never calls `GetEnumerator()` at all violates the first
 precondition and will cause a deadlock.
 
+# Exception Handling
+If the source sequence itself throws an exception (e.g. from a custom `IEnumerator.MoveNext()`),
+the exception is propagated directly to the caller of `Combine` or `TryCombine`, bypassing the
+`Result` mechanism entirely — since a source failure makes both coenumerable results meaningless.
+
 # Comments and Limitations
-* `Combine` is significantly slower than running two functions independently over the same sequence,
-  because it requires two thread synchronisations per item. `CoEnumerable.Demo` illustrates this —
-  expect a 20x–50x slowdown compared to the naive approach. This is an inherent cost of the
-  no-buffering constraint: any meaningful speedup would require relaxing it to allow a small
-  fixed-size buffer.
-* If one coenumerable throws an exception, the other is allowed to run to completion before
-  the exception is propagated to the caller.
-* The `CoEnumerableTests` project documents the preconditions and verifies correct behavior,
+* `Combine` and `TryCombine` are significantly slower than running two functions independently
+  over the same sequence, because they require two thread synchronisations per item.
+  `CoEnumerable.Demo` illustrates this — expect a 20x–50x slowdown compared to the naive
+  approach. This is an inherent cost of the no-buffering constraint: any meaningful speedup
+  would require relaxing it to allow a small fixed-size buffer.
+* The `CoEnumerable.Tests` project documents the preconditions and verifies correct behavior,
   including edge cases such as partial enumeration, vacuous enumeration, and exceptions.
 * Could this be implemented using [ReactiveX](http://reactivex.io/)? It is certainly possible
   to satisfy the first three requirements using ReactiveX. Whether the fourth requirement —
@@ -67,5 +78,5 @@ precondition and will cause a deadlock.
 # Acknowledgements
 The initial Barrier-based design was mine, however [Claude](https://claude.ai)
 (claude.ai, `claude-sonnet-4-6`)
-discovered some important bugs, wrote tests for them, 
+discovered some important bugs, wrote tests for them,
 and fixed the implementation.

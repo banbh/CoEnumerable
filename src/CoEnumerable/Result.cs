@@ -22,10 +22,10 @@ public readonly struct Result<T>
 
 #pragma warning disable CA1000
     public static Result<T> Ok(T value) => new(value);
-
     public static Result<T> Fail(Exception error)
     {
         ArgumentNullException.ThrowIfNull(error);
         return new Result<T>(error);
     }
+#pragma warning restore CA1000
 }

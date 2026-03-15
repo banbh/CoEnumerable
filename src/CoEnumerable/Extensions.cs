@@ -160,20 +160,15 @@ public static class Extensions
         }
     }
     
-    
-        
     public static (Result<T1>, Result<T2>) TryCombine<TS, T1, T2>(
         this IEnumerable<TS> source,
         Func<IEnumerable<TS>, T1> coenumerable1,
         Func<IEnumerable<TS>, T2> coenumerable2) =>
         source.TryCombine(coenumerable1, coenumerable2, out _, out _);
-        
-
     
-    internal static T Combine<TS, T1, T2, T>(this IEnumerable<TS> source,
+    internal static (T1,T2) Combine<TS, T1, T2>(this IEnumerable<TS> source,
         Func<IEnumerable<TS>, T1> coenumerable1,
         Func<IEnumerable<TS>, T2> coenumerable2,
-        Func<T1, T2, T> resultSelector,
         out int taskId1,
         out int taskId2)
     {
@@ -184,12 +179,12 @@ public static class Extensions
             .ToList();
 
         return exceptions.Count == 0 
-            ? resultSelector(r1.Value, r2.Value) 
+            ? (r1.Value, r2.Value) 
             : throw new AggregateException(exceptions);
     }
     
     public static (T1, T2) Combine<TS, T1, T2>(this IEnumerable<TS> source,
         Func<IEnumerable<TS>, T1> coenumerable1,
         Func<IEnumerable<TS>, T2> coenumerable2) =>
-        source.Combine(coenumerable1, coenumerable2, (x, y) => (x, y), out _, out _);
+        source.Combine(coenumerable1, coenumerable2, out _, out _);
 }
