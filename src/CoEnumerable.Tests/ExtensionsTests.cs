@@ -239,6 +239,43 @@ public class ExtensionsTests
     }
 
     [TestMethod]
+    public void Combine_ThrowsAggregateException_WhenOneCoenumerableFails()
+    {
+        const string msg = "deliberate failure";
+        var nums = Enumerable.Range(1, 1000);
+        
+        var ae = Throws<AggregateException>(() =>
+            nums.Combine(Fail, ns => ns.Sum()));
+        
+        HasCount(1, ae.InnerExceptions);
+        IsInstanceOfType<InvalidOperationException>(ae.InnerExceptions[0]);
+        AreEqual(msg, ae.InnerExceptions[0].Message);
+        return;
+
+        int Fail(IEnumerable<int> _) => throw new InvalidOperationException(msg);
+    }
+    
+    [TestMethod]
+    public void Combine_ThrowsAggregateException_WhenBothCoenumerablesFail()
+    {
+        const string msg1 = "failure 1";
+        const string msg2 = "failure 2";
+        var nums = Enumerable.Range(1, 1000);
+
+        var ae = Throws<AggregateException>(() => nums.Combine(Fail1, Fail2));
+        
+        HasCount(2, ae.InnerExceptions);
+        IsInstanceOfType<InvalidOperationException>(ae.InnerExceptions[0]);
+        AreEqual(msg1, ae.InnerExceptions[0].Message);
+        IsInstanceOfType<InvalidOperationException>(ae.InnerExceptions[1]);
+        AreEqual(msg2, ae.InnerExceptions[1].Message);
+        return;
+
+        int Fail1(IEnumerable<int> _) => throw new InvalidOperationException(msg1);
+        int Fail2(IEnumerable<int> _) => throw new InvalidOperationException(msg2);
+    }
+    
+    [TestMethod]
     [Ignore("Out of scope: a coenumerable that never calls GetEnumerator() violates the precondition " +
             "that each coenumerable enumerates its argument exactly once.")]
     [Timeout(6000, CooperativeCancellation = true)]
