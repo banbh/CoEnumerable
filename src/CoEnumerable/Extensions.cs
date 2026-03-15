@@ -42,9 +42,9 @@ public static class Extensions
                     // before GetEnumerator() is called, so ! is safe here.
                     barrier!.SignalAndWait();
                 }
-                catch (BarrierPostPhaseException bppe)
+                catch (BarrierPostPhaseException e)
                 {
-                    throw new SourceException(bppe.InnerException!);
+                    throw new SourceException(e.InnerException!);
                 }
                     
                 if (moveNext)
@@ -75,6 +75,10 @@ public static class Extensions
         var enumerable1 = new BarrierEnumerable<TS>(ss);
         var enumerable2 = new BarrierEnumerable<TS>(ss);
 
+        // ReSharper disable once AccessToDisposedClosure
+        // ss is disposed via 'using' only after barrier.Dispose() is called,
+        // which guarantees the post-phase action (which captures ss) can never
+        // fire after ss is disposed.
         var barrier = new Barrier(2, _ => enumerable1.MoveNext = enumerable2.MoveNext = ss.MoveNext());
         enumerable1.Barrier = enumerable2.Barrier = barrier;
 
@@ -90,14 +94,7 @@ public static class Extensions
             }
             finally
             {
-                try
-                {
-                    barrier.RemoveParticipant();
-                }
-                catch (BarrierPostPhaseException bppe)
-                {
-                    throw new SourceException(bppe.InnerException!);
-                }
+                RemoveParticipantOrThrowSourceException();
             }
         });
         taskId1 = t1.Id;
@@ -114,14 +111,7 @@ public static class Extensions
             }
             finally
             {
-                try
-                {
-                    barrier.RemoveParticipant();
-                }
-                catch (BarrierPostPhaseException bppe)
-                {
-                    throw new SourceException(bppe.InnerException!);
-                }
+                RemoveParticipantOrThrowSourceException();
             }
         });
         taskId2 = t2.Id;
@@ -150,7 +140,27 @@ public static class Extensions
         }
 
         return (t1.Result, t2.Result);
+        
+        void RemoveParticipantOrThrowSourceException()
+        {
+            // Note: if this throws, any in-flight exception from the coenumerable will be lost.
+            // This is safe because coenumerable exceptions are always captured into Results
+            // before this finally block runs, so there is never an in-flight exception here.
+            try
+            {
+                // barrier is disposed only after both tasks complete (via Task.WhenAll),
+                // so it is guaranteed to be alive when RemoveParticipantOrThrowSourceException is called.
+                // ReSharper disable once AccessToDisposedClosure
+                barrier.RemoveParticipant();
+            }
+            catch (BarrierPostPhaseException e)
+            {
+                throw new SourceException(e.InnerException!);
+            }
+        }
     }
+    
+    
         
     public static (Result<T1>, Result<T2>) TryCombine<TS, T1, T2>(
         this IEnumerable<TS> source,

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Linq;
 using System.Text;
@@ -112,6 +113,7 @@ public class ExtensionsTests
     }
         
     [TestMethod]
+    [SuppressMessage("Globalization", "CA1305")]
     public void CombineTracingTest()
     {
         // ReSharper disable PossibleMultipleEnumeration
@@ -154,6 +156,7 @@ public class ExtensionsTests
     }
         
     [TestMethod]
+    // [SuppressMessage("Usage", "MSTEST0058:Do not use asserts in catch blocks")]
     public void Barrier_RemoveParticipant_ThrowsBPPE_WhenPostPhaseActionThrows()
     {
         const string msg = "post-phase failure";
@@ -161,6 +164,9 @@ public class ExtensionsTests
         
         var t = Task.Run(() =>
         {
+            // ReSharper disable once AccessToDisposedClosure
+            // barrier is disposed only after t.Wait() confirms the task has completed,
+            // so barrier is guaranteed alive for the duration of the task lambda.
             barrier.SignalAndWait(TestContext.CancellationToken); // signal and wait for phase to complete
         }, TestContext.CancellationToken);
             
@@ -177,8 +183,10 @@ public class ExtensionsTests
         }
         catch (BarrierPostPhaseException bppe)
         {
+#pragma warning disable MSTEST0058
             IsInstanceOfType<InvalidOperationException>(bppe.InnerException);
             AreEqual(msg, bppe.InnerException!.Message);
+#pragma warning restore MSTEST0058
             // The next assert identifies an undocumented behavior. For now we just work around it
             // and if they fix it then we can alter our code.
             // Assert.Inconclusive("This is undocumented behavior!");
