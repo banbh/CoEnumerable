@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,7 +15,7 @@ namespace CoEnumerable
     {
         private class BarrierEnumerable<T>(IEnumerator<T> enumerator) : IEnumerable<T>
         {
-            private Barrier barrier;
+            private Barrier? barrier;
             // moveNext is written by the post-phase action and read by Inner() on another thread.
             // This is safe because Barrier.SignalAndWait() provides a full memory barrier,
             // guaranteeing that the write is visible to all threads before they proceed.
@@ -33,8 +36,15 @@ namespace CoEnumerable
             {
                 while (true)
                 {
-                    barrier.SignalAndWait();
-
+                    try
+                    {
+                        barrier!.SignalAndWait(); // TODO is there a way to ensure barrier os not null?
+                    }
+                    catch (BarrierPostPhaseException bppe)
+                    {
+                        throw new SourceException(bppe.InnerException!);
+                    }
+                    
                     if (moveNext)
                     {
                         yield return src();
@@ -49,10 +59,12 @@ namespace CoEnumerable
             IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         }
 
-        internal static T Combine<TS, T1, T2, T>(this IEnumerable<TS> source,
+        private sealed class SourceException(Exception inner) : Exception(null, inner);
+        
+        internal static (Result<T1>, Result<T2>) Combine<TS, T1, T2>(
+            this IEnumerable<TS> source,
             Func<IEnumerable<TS>, T1> coenumerable1,
             Func<IEnumerable<TS>, T2> coenumerable2,
-            Func<T1, T2, T> resultSelector,
             out int taskId1,
             out int taskId2)
         {
@@ -61,18 +73,18 @@ namespace CoEnumerable
             var enumerable1 = new BarrierEnumerable<TS>(ss);
             var enumerable2 = new BarrierEnumerable<TS>(ss);
 
-            // Not using 'using' here — barrier is disposed manually after WhenAll
-            // to ensure it is not disposed while threads are still using it.
-            // ReSharper disable once AccessToDisposedClosure
             var barrier = new Barrier(2, _ => enumerable1.MoveNext = enumerable2.MoveNext = ss.MoveNext());
             enumerable1.Barrier = enumerable2.Barrier = barrier;
 
-            // ReSharper disable once AccessToDisposedClosure
             using var t1 = Task.Run(() =>
             {
                 try
                 {
-                    return coenumerable1(enumerable1);
+                    return Result<T1>.Ok(coenumerable1(enumerable1));
+                }
+                catch (Exception e) when (e is not SourceException)
+                {
+                    return Result<T1>.Fail(e);
                 }
                 finally
                 {
@@ -80,17 +92,23 @@ namespace CoEnumerable
                     {
                         barrier.RemoveParticipant();
                     }
-                    catch (InvalidOperationException) { }
+                    catch (BarrierPostPhaseException bppe)
+                    {
+                        throw new SourceException(bppe.InnerException!);
+                    }
                 }
             });
             taskId1 = t1.Id;
 
-            // ReSharper disable once AccessToDisposedClosure
             using var t2 = Task.Run(() =>
             {
                 try
                 {
-                    return coenumerable2(enumerable2);
+                    return Result<T2>.Ok(coenumerable2(enumerable2));
+                }
+                catch (Exception e) when (e is not SourceException)
+                {
+                    return Result<T2>.Fail(e);
                 }
                 finally
                 {
@@ -98,25 +116,62 @@ namespace CoEnumerable
                     {
                         barrier.RemoveParticipant();
                     }
-                    catch (InvalidOperationException) { }
+                    catch (BarrierPostPhaseException bppe)
+                    {
+                        throw new SourceException(bppe.InnerException!);
+                    }
                 }
             });
             taskId2 = t2.Id;
 
             try
             {
-                // Wait for both tasks to complete before propagating any exception,
-                // ensuring neither task is leaked if one coenumerable throws.
                 Task.WhenAll(t1, t2).Wait();
+            }
+            catch (AggregateException ae)
+            {
+                var sourceExceptions = ae.InnerExceptions
+                    .OfType<SourceException>()
+                    .Select(se => se.InnerException!)
+                    .ToList();
+    
+                if (sourceExceptions.Count > 0)
+                    ExceptionDispatchInfo.Capture(sourceExceptions[0]).Throw();
+    
+                // Should not reach here
+                Debug.Assert(false, "Unexpected exception in AggregateException");
+                throw;
             }
             finally
             {
                 barrier.Dispose();
             }
 
-            return resultSelector(t1.Result, t2.Result);
+            return (t1.Result, t2.Result);
         }
+        
+        internal static T Combine<TS, T1, T2, T>(this IEnumerable<TS> source,
+            Func<IEnumerable<TS>, T1> coenumerable1,
+            Func<IEnumerable<TS>, T2> coenumerable2,
+            Func<T1, T2, T> resultSelector,
+            out int taskId1,
+            out int taskId2)
+        {
+            var (r1, r2) = source.Combine(coenumerable1, coenumerable2, out taskId1, out taskId2);
 
+            var exceptions = new[] { r1.Error, r2.Error }
+                .Where(e => e is not null)
+                .ToList();
+
+            if (exceptions.Count == 1)
+                ExceptionDispatchInfo.Capture(exceptions[0]!).Throw();
+
+            if (exceptions.Count == 2)
+                throw new AggregateException(exceptions!);
+
+            return resultSelector(r1.Value!, r2.Value!);
+        }
+        
         public static T Combine<TS, T1, T2, T>(this IEnumerable<TS> source, 
             Func<IEnumerable<TS>, T1> coenumerable1, 
             Func<IEnumerable<TS>, T2> coenumerable2, 

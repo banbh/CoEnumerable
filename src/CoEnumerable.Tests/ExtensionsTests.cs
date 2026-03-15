@@ -1,27 +1,95 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections;
+using System.Collections.Generic;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
+using static Microsoft.VisualStudio.TestTools.UnitTesting.Assert;
 
 namespace CoEnumerable.Tests
 {
     [TestClass()]
     public class ExtensionsTests
     {
+        private class ThrowingEnumerable(IEnumerable<int> inner, int throwAfter, string msg) : IEnumerable<int>
+        {
+            public IEnumerator<int> GetEnumerator() => new ThrowingEnumerator(inner.GetEnumerator(), throwAfter, msg);
+            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+        }
+
+        private class ThrowingEnumerator(IEnumerator<int> inner, int throwAfter, string msg) : IEnumerator<int>
+        {
+            private int count;
+
+            public bool MoveNext()
+            {
+                if (count++ >= throwAfter)
+                    throw new InvalidOperationException(msg);
+                return inner.MoveNext();
+            }
+
+            public int Current => inner.Current;
+            object IEnumerator.Current => Current;
+            public void Reset() => inner.Reset();
+            public void Dispose() => inner.Dispose();
+        }
+        
         private static bool Coenumerable1(IEnumerable<int> ns) => ns.Any(n => n == 3);
         private static int Coenumerable2(IEnumerable<int> ns) => ns.Take(2).Sum();
         
         private static readonly IEnumerable<int> Nums = Enumerable.Range(1, 2_000_000);
+        
+        [TestMethod]
+        public void Combine_PropagatesSourceException_WhenPostPhaseActionThrows()
+        {
+            const string msg = "source failure";
+            var nums = new ThrowingEnumerable(Enumerable.Range(1, 10), throwAfter: 3, msg);
+
+            try
+            {
+                nums.Combine(
+                    ns => ns.Take(0).Sum(), // finishes early, triggers RemoveParticipant -> FinishPhase
+                    ns => ns.Sum());
+                Fail("Expected exception was not thrown.");
+            }
+            catch (Exception e)
+            {
+                IsInstanceOfType<InvalidOperationException>(e);
+                AreEqual(msg, e.Message);
+            }
+        }
+        
+        [TestMethod]
+        public void Combine_PropagatesSourceException_WhenSourceThrowsMidEnumeration()
+        {
+            const string msg = "source failure";
+            var nums = new ThrowingEnumerable(Enumerable.Range(1, 10), throwAfter: 3, msg);
+
+            try
+            {
+                nums.Combine(
+                    ns => ns.Sum(), // fully consumes — will hit the throw
+                    ns => ns.Sum());
+                Fail("Expected exception was not thrown.");
+            }
+            catch (Exception e)
+            {
+                // TODO follow https://learn.microsoft.com/en-us/dotnet/core/testing/mstest-analyzers/mstest0058
+                IsInstanceOfType<InvalidOperationException>(e);
+                AreEqual(msg, e.Message);
+            }
+        }
         
         [TestMethod()]
         public void CombineTest()
         {
             // ReSharper disable PossibleMultipleEnumeration
             var (x1, x2) = Nums.Combine(Coenumerable1, Coenumerable2);
-            Assert.AreEqual(Coenumerable1(Nums), x1);
-            Assert.AreEqual(Coenumerable2(Nums), x2);
+            AreEqual(Coenumerable1(Nums), x1);
+            AreEqual(Coenumerable2(Nums), x2);
             // ReSharper restore PossibleMultipleEnumeration
         }
 
@@ -33,8 +101,8 @@ namespace CoEnumerable.Tests
                 (x, y) => (x, y),
                 out var tid1,
                 out var tid2);
-            Assert.AreEqual(Coenumerable1(Nums), x1);
-            Assert.AreEqual(Coenumerable2(Nums), x2);
+            AreEqual(Coenumerable1(Nums), x1);
+            AreEqual(Coenumerable2(Nums), x2);
 
             // The problem with tracking the precise activities triggered by Combine(...) is that the threads
             // associated with the two coenumerables may run in various orders.  Below we painfully create a regex
@@ -47,7 +115,7 @@ namespace CoEnumerable.Tests
                     if (i < 2) C(enumerator.Current); else C1(enumerator.Current);
                 }
             pat.Append($"{Task.CurrentId}:; $");
-            Assert.IsTrue(Regex.IsMatch(sb.ToString(), pat.ToString()));
+            IsTrue(Regex.IsMatch(sb.ToString(), pat.ToString()));
             // ReSharper restore PossibleMultipleEnumeration
             return;
             
@@ -66,5 +134,43 @@ namespace CoEnumerable.Tests
             }  // Current by both threads
             void C1(int i) => A(tid1, i); // Current by just thread 1
         }
+        
+        [TestMethod]
+        public void Barrier_RemoveParticipant_ThrowsBPPE_WhenPostPhaseActionThrows()
+        {
+            const string msg = "post-phase failure";
+            var barrier = new Barrier(2, _ => throw new InvalidOperationException(msg));
+        
+            var t = Task.Run(() =>
+            {
+                barrier.SignalAndWait(); // signal and wait for phase to complete
+            });
+            
+            // Give task time to signal
+            Thread.Sleep(50);
+            
+            // Now remove the second participant — this should trigger FinishPhase,
+            // which runs the post-phase action, which throws, resulting in BPPE
+            try
+            {
+                barrier.RemoveParticipant();
+                Fail("Expected BarrierPostPhaseException was not thrown; " +
+                            "behavior may have changed since test was written.");
+            }
+            catch (BarrierPostPhaseException bppe)
+            {
+                IsInstanceOfType<InvalidOperationException>(bppe.InnerException);
+                AreEqual(msg, bppe.InnerException!.Message);
+                // The next assert identifies an undocumented behavior. For now we just work around it
+                // and if they fix it then we can alter our code.
+                // Assert.Inconclusive("This is undocumented behavior!");
+            }
+            finally
+            {
+                // t.Wait(); // will throw although perhaps TODO we want to wait and catch so we can dispose barrier?
+                barrier.Dispose();
+            }
+        }
+
     }
 }
