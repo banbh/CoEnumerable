@@ -92,6 +92,39 @@ public class ExtensionsTests
         IsTrue(r2.IsSuccess);
         AreEqual(500500, r2.Value);
     }
+
+    [TestMethod]
+    public void TryCombine_After_CoEnum_Throws_Is_Minimal()
+    {
+        var m = 0;
+        for (var i1 = 0; i1 < 5; i1++)
+        {
+            for (var i2 = 0; i2 < 5; i2++)
+            {
+                m = 0;
+                // ReSharper disable once AccessToModifiedClosure
+                var (r1, r2) = Enumerable
+                    .Range(0, 10)
+                    .Select(k => { m++; return k; })
+                    .TryCombine(ConsumeThenThrow(i1), ConsumeThenThrow(i2));
+                
+                IsFalse(r1.IsSuccess);
+                AreEqual($"n={i1}", r1.Error.Message);
+                IsFalse(r2.IsSuccess);
+                AreEqual($"n={i2}", r2.Error.Message);
+                AreEqual(Math.Max(i1, i2), m);
+            }
+        }
+        
+        return;
+        
+        static Func<IEnumerable<int>, int> ConsumeThenThrow(int n) =>
+            ns =>
+            {
+                _ = ns.Take(n).Count();
+                throw new InvalidOperationException($"n={n}");
+            };
+    }
         
     [TestMethod]
     public void TryCombine_CapturesBothExceptions_WhenBothCoenumerablesFail()
@@ -107,7 +140,7 @@ public class ExtensionsTests
         IsInstanceOfType<InvalidOperationException>(r2.Error);
         AreEqual(msg2, r2.Error.Message);
         return;
-            
+        
         int Fail1(IEnumerable<int> ns) => throw new InvalidOperationException(msg1);
         int Fail2(IEnumerable<int> ns) => throw new InvalidOperationException(msg2);
     }
