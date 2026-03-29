@@ -29,12 +29,13 @@ We want a procedure to evaluate two coenumerables on a given enumerable so that
 * the enumerable is only enumerated once,
 * we do not store the items of the enumerable simultaneously in memory,
 * we do not require access to the source code of the coenumerables, and
-* if both coenumerables enumerate the enumerable partially, then so too does the procedure.
+* we consume as little of the enumerable as possible (if both coenumerables enumerate the enumerable partially, 
+  then so too does the procedure).
 
 Two extension methods in the `CoEnumerable` project implement this:
 
 * `Combine` evaluates both coenumerables and returns their results as a tuple `(T1, T2)`.
-  If either coenumerable throws, the other is allowed to run to completion, and then an
+  If either coenumerable throws, the other stops enumerating as soon as possible after, and then an
   `AggregateException` containing all thrown exceptions is propagated to the caller.
 * `TryCombine` evaluates both coenumerables and returns a `(Result<T1>, Result<T2>)` tuple,
   where each `Result<T>` independently captures either a value or an exception. This is useful
