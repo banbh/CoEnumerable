@@ -115,17 +115,86 @@ public class ExtensionsTests
                 AreEqual(Math.Max(i1, i2), m);
             }
         }
-        
-        return;
-        
-        static Func<IEnumerable<int>, int> ConsumeThenThrow(int n) =>
-            ns =>
-            {
-                _ = ns.Take(n).Count();
-                throw new InvalidOperationException($"n={n}");
-            };
     }
-        
+
+    [TestMethod]
+    public void Combine_After_CoEnum_Throws_Is_Minimal()
+    {
+        var m = 0;
+        const int n = 20;
+        for (var i1 = 0; i1 < n; i1++)
+        {
+            for (var i2 = 0; i2 < n; i2++)
+            {
+                m = 0;
+                // ReSharper disable AccessToModifiedClosure
+                var ae = Throws<AggregateException>(() => Enumerable
+                    .Range(0, n)
+                    .Select(k => { m++; return k; })
+                    .Combine(ConsumeThenThrow(i1), ConsumeThenThrow(i2)));
+                // ReSharper restore AccessToModifiedClosure
+
+                var d = Math.Abs(i2 - i1);
+                IsGreaterThanOrEqualTo(lowerBound: d == 0 ? 2 : 1, ae.InnerExceptions.Count);
+                IsLessThanOrEqualTo(upperBound: d is 0 or 1 ? 2 : 1, ae.InnerExceptions.Count);
+                IsInstanceOfType<InvalidOperationException>(ae.InnerExceptions[0]);
+                // Console.WriteLine($"******************************************************** i1={i1}, i2={i2}");
+                // Console.WriteLine(ae);
+                var minI = Math.Min(i1, i2);
+                if (ae.InnerExceptions.Count == 1)
+                {
+                    AreEqual($"n={minI}", ae.InnerExceptions[0].Message);
+                }
+                else
+                {
+                    AreEqual($"n={i1}", ae.InnerExceptions[0].Message);
+                    AreEqual($"n={i2}", ae.InnerExceptions[1].Message);
+                }
+                IsLessThanOrEqualTo(upperBound: 1, Math.Abs(minI - m));
+            }
+        }
+    }
+
+    static Func<IEnumerable<int>, int> ConsumeThenThrow(int n) =>
+        ns =>
+        {
+            _ = ns.Take(n).Count();
+            throw new InvalidOperationException($"n={n}");
+        };
+
+    [TestMethod]
+    public void Combine_After_CoEnum_Throws_Is_Minimal01()
+    {
+        var m = 0;
+        const int i1 = 2, i2 = 0;
+
+        for (var i = 0; i < 20; i++)
+        {
+            Console.WriteLine($"******************** i={i}");
+            m = 0;
+            // ReSharper disable AccessToModifiedClosure
+            var ae = Throws<AggregateException>(() => Enumerable
+                .Range(0, 10)
+                .Select(k => { m++; return k; })
+                .Combine(ConsumeThenThrow(i1), ConsumeThenThrow(i2)));
+            // ReSharper restore AccessToModifiedClosure
+
+            Console.WriteLine($"m={m}");
+            Console.WriteLine(ae);
+            // HasCount(1, ae.InnerExceptions);
+            var d = Math.Abs(i2 - i1);
+            IsGreaterThanOrEqualTo(lowerBound: d == 0 ? 2 : 1, ae.InnerExceptions.Count);
+            IsLessThanOrEqualTo(upperBound: d == 1 || d == 0 ? 2 : 1, ae.InnerExceptions.Count);
+            IsInstanceOfType<InvalidOperationException>(ae.InnerExceptions[0]);
+            AreEqual($"n={Math.Min(i1,i2)}", ae.InnerExceptions[0].Message);
+            if (ae.InnerExceptions.Count > 1)
+            {
+                AreEqual($"n={i2}", ae.InnerExceptions[1].Message);
+            }
+            IsLessThanOrEqualTo(upperBound: 1, Math.Abs(Math.Min(i1, i2) - m));
+        }
+    }
+
     [TestMethod]
     public void TryCombine_CapturesBothExceptions_WhenBothCoenumerablesFail()
     {

@@ -13,9 +13,13 @@ namespace CoEnumerable;
 
 public static class Extensions
 {
-    private class BarrierEnumerable<T>(IEnumerator<T> enumerator) : IEnumerable<T>
+    
+    private sealed class CancelledByPartnerException : Exception;
+    
+    private class BarrierEnumerable<T>(IEnumerator<T> enumerator, CancellationToken token) : IEnumerable<T>
     {
         private Barrier? barrier;
+
         // moveNext is written by the post-phase action and read by Inner() on another thread.
         // This is safe because Barrier.SignalAndWait() provides a full memory barrier,
         // guaranteeing that the write is visible to all threads before they proceed.
@@ -40,11 +44,15 @@ public static class Extensions
                 {
                     // barrier is always set immediately after construction in TryCombine,
                     // before GetEnumerator() is called, so ! is safe here.
-                    barrier!.SignalAndWait();
+                    barrier!.SignalAndWait(token);
                 }
                 catch (BarrierPostPhaseException e)
                 {
                     throw new SourceException(e.InnerException!);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw new CancelledByPartnerException();
                 }
                     
                 if (moveNext)
@@ -67,13 +75,17 @@ public static class Extensions
         this IEnumerable<TS> source,
         Func<IEnumerable<TS>, T1> coenumerable1,
         Func<IEnumerable<TS>, T2> coenumerable2,
+        bool isCancelable,
         out int taskId1,
         out int taskId2)
     {
         using var ss = source.GetEnumerator();
 
-        var enumerable1 = new BarrierEnumerable<TS>(ss);
-        var enumerable2 = new BarrierEnumerable<TS>(ss);
+        CancellationTokenSource cts = new();
+        var token = isCancelable ? cts.Token : CancellationToken.None;
+        // var token = cts.Token;
+        BarrierEnumerable<TS> enumerable1 = new(ss, token);
+        BarrierEnumerable<TS> enumerable2 = new(ss, token);
 
         // ReSharper disable once AccessToDisposedClosure
         // ss is disposed via 'using' only after barrier.Dispose() is called,
@@ -81,39 +93,10 @@ public static class Extensions
         // fire after ss is disposed.
         var barrier = new Barrier(2, _ => enumerable1.MoveNext = enumerable2.MoveNext = ss.MoveNext());
         enumerable1.Barrier = enumerable2.Barrier = barrier;
-
-        using var t1 = Task.Run(() =>
-        {
-            try
-            {
-                return Result<T1>.Ok(coenumerable1(enumerable1));
-            }
-            catch (Exception e) when (e is not SourceException)
-            {
-                return Result<T1>.Fail(e);
-            }
-            finally
-            {
-                RemoveParticipantOrThrowSourceException();
-            }
-        });
+        
+        using var t1 = RunCoenumerable(coenumerable1, enumerable1);
         taskId1 = t1.Id;
-
-        using var t2 = Task.Run(() =>
-        {
-            try
-            {
-                return Result<T2>.Ok(coenumerable2(enumerable2));
-            }
-            catch (Exception e) when (e is not SourceException)
-            {
-                return Result<T2>.Fail(e);
-            }
-            finally
-            {
-                RemoveParticipantOrThrowSourceException();
-            }
-        });
+        using var t2 = RunCoenumerable(coenumerable2, enumerable2);
         taskId2 = t2.Id;
 
         try
@@ -129,10 +112,22 @@ public static class Extensions
     
             if (sourceExceptions.Count > 0)
                 ExceptionDispatchInfo.Capture(sourceExceptions[0]).Throw();
+            
+            if (!ae.InnerExceptions.All(e => e is CancelledByPartnerException))
+            {
+                // Should not reach here
+                Debug.Assert(false, "Unexpected exception in AggregateException");
+                throw;
+            }
     
-            // Should not reach here
-            Debug.Assert(false, "Unexpected exception in AggregateException");
-            throw;
+            if (ae.InnerExceptions.All(e => e is CancelledByPartnerException))
+            {
+                var r1 = t1.IsCompletedSuccessfully ? t1.Result : default;
+                var r2 = t2.IsCompletedSuccessfully ? t2.Result : default;
+                return (r1, r2);
+            }
+            // Debug.Assert(false, "Unexpected exception in AggregateException");
+            // throw;
         }
         finally
         {
@@ -140,7 +135,25 @@ public static class Extensions
         }
 
         return (t1.Result, t2.Result);
-        
+
+        Task<Result<T>> RunCoenumerable<T>(Func<IEnumerable<TS>, T> coenumerable, BarrierEnumerable<TS> enumerable) =>
+            Task.Run(() =>
+            {
+                try
+                {
+                    return Result<T>.Ok(coenumerable(enumerable));
+                }
+                catch (Exception e) when (e is not SourceException and not CancelledByPartnerException)
+                {
+                    cts.Cancel();
+                    return Result<T>.Fail(e);
+                }
+                finally
+                {
+                    RemoveParticipantOrThrowSourceException();
+                }
+            });
+
         void RemoveParticipantOrThrowSourceException()
         {
             // Note: if this throws, any in-flight exception from the coenumerable will be lost.
@@ -164,7 +177,7 @@ public static class Extensions
         this IEnumerable<TS> source,
         Func<IEnumerable<TS>, T1> coenumerable1,
         Func<IEnumerable<TS>, T2> coenumerable2) =>
-        source.TryCombine(coenumerable1, coenumerable2, out _, out _);
+        source.TryCombine(coenumerable1, coenumerable2, false, out _, out _);
     
     internal static (T1,T2) Combine<TS, T1, T2>(this IEnumerable<TS> source,
         Func<IEnumerable<TS>, T1> coenumerable1,
@@ -172,7 +185,7 @@ public static class Extensions
         out int taskId1,
         out int taskId2)
     {
-        var (r1, r2) = source.TryCombine(coenumerable1, coenumerable2, out taskId1, out taskId2);
+        var (r1, r2) = source.TryCombine(coenumerable1, coenumerable2, true, out taskId1, out taskId2);
 
         var exceptions = new[] { r1.IsSuccess ? null : r1.Error, r2.IsSuccess ? null : r2.Error }
             .OfType<Exception>()
